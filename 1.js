@@ -1,27 +1,41 @@
-const { createReadStream } = require("fs");
-const readLine = require("readline");
+const { readFile } = require("fs");
 
 console.time();
 
-const readStream = readLine.createInterface({
-    input: createReadStream("./data")
-});
-
-let thisTotal = 0;
-let currentMax = 0;
-readStream.on("line", line => {
-    if (line !== "") {
-        thisTotal += Number(line);
-    } else {
-        if (thisTotal > currentMax) {
-            console.log(currentMax);
-            currentMax = thisTotal;
+function* stringByLine(string) {
+    let currentLine = "";
+    const max = string.length;
+    for (let i = 0; i < max; i++) {
+        const char = string[i];
+        if (char === "\n") {
+            yield currentLine;
+            currentLine = "";
+        } else {
+            currentLine = `${currentLine}${char}`;
         }
-        thisTotal = 0;
     }
-});
+}
 
-readStream.on("close", () => {
+readFile("./data", (err, data) => {
+    if (err) {
+        return;
+    }
+
+    const fileData = data.toString();
+    let current = 0;
+    let currentMax = 0;
+    
+    for (let line of stringByLine(fileData)) {
+        if (line.length === 0) {
+            if (current > currentMax) {
+                currentMax = current;
+            }
+            current = 0;
+            continue;
+        }
+        current += Number(line);
+    }
+
     console.log(currentMax);
     console.timeEnd();
 });
