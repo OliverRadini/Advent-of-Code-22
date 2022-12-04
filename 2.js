@@ -1,5 +1,6 @@
 const { readFile } = require("fs");
 
+console.time();
 // A for Rock, B for Paper, and C for Scissors
 // X for Rock, Y for Paper, and Z for Scissors
 // 1 for Rock, 2 for Paper, and 3 for Scissors
@@ -46,6 +47,7 @@ readFile("./data2", "utf8", (err, data) => {
         total += scores[data[i]][data[i + 2]];
     }
 
+    console.timeEnd();
     console.log(total);
 
     // const asString = data.toString();

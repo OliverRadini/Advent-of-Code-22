@@ -36,6 +36,6 @@ readFile("./data", (err, data) => {
         current += Number(line);
     }
 
-    console.log(currentMax);
     console.timeEnd();
+    console.log(currentMax);
 });
