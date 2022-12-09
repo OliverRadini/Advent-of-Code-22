@@ -93,7 +93,6 @@ const parseCommand = command => {
         case "ls":
             return {
                 type: "ls",
-                // NOTE: this might not really work too well, maybe remove it
                 payload: command.slice(1).map(parseLsLine).filter(x => x.type === "file")
             };
     }
@@ -144,10 +143,6 @@ const sizeAllDirectories = directoriesState => {
     return [...sizeOfTheDirectoriesInThisFolder, ...recursedContents];
 };
 
-/**
- * The total disk space available to the filesystem is 70000000.
- * To run the update, you need unused space of at least 30000000.
- */
 const SYSTEM_DISK_SIZE = 70000000;
 const FREE_SPACE_REQUIRED = 30000000;
 
@@ -163,8 +158,6 @@ readFile("./data7", "utf8", (err, data) => {
     }
 
     const directorySizes = sizeAllDirectories(state.directories);
-        // .filter(([_, size]) => size < 100000)
-        // .reduce((p, [_, c]) => p + c, 0);
 
     console.log(directorySizes);
 
