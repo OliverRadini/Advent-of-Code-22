@@ -1,103 +1,78 @@
 const { readFileSync } = require("fs");
 
-const range = (start, finish) => Array.from(Array((finish - start) + 1)).map((_, i) => start + i);
-
 let input = readFileSync("./data10", "utf8");
-
-const SCREEN_WIDTH = 40;
-const SCREEN_HEIGHT = 6;
-
-const initialState = {
-    registers: {
-        x: {
-            value: 1,
-            history: [1]
-        }
-    },
-    cycle: 0,
-    signalStrengthMeasures: [],
-    screenOutput: range(0, 10000).map(() => ".")
-};
 
 const commands = input
     .split("\n")
     .map(line => line.split(" "))
-    .map(([c, n]) => n === undefined ? { type: "noop" } : { type: "addx", payload: Number(n) });
+    .map(([c, n]) => ({ c, n: n === undefined ? null : Number(n) }));
 
-const cycleNumberIsSignalStrengthMeasure = x => (x - 20) % 40 === 0;
 
-const measureSignalStrength = (state, register, atCycle) => {
-    return state.registers[register].value * atCycle;
-};
+const SCREEN_WIDTH = 40;
+const SCREEN_HEIGHT = 6;
+const CYCLES = SCREEN_WIDTH * SCREEN_HEIGHT;
 
-const reducer = (state, action) => {
-    const cycleAfterNextAction = state.cycle + (
-        action.type === "addx" ? 2 : 1
-    );
+const screenOutput = Array.from(Array(SCREEN_HEIGHT)).map(
+    () => Array.from(Array(SCREEN_WIDTH)).map(() => ".")
+);
 
-    const cyclesCoveredByOperation = range(state.cycle+1, cycleAfterNextAction);
-
-    // if the signal strength measure occurs between now and the next
-    // action, then we use current state
-    let signalStrengthMeasure = null;
-    const cycleForSignalStrenghtMeasure = cyclesCoveredByOperation
-        .find(cycleNumberIsSignalStrengthMeasure);
-    if (cycleForSignalStrenghtMeasure !== undefined) {
-        signalStrengthMeasure = measureSignalStrength(state, "x", cycleForSignalStrenghtMeasure);
-    }
-
-    // if the operation spans more than one cycle, we still need to
-    // write to the screen for both
-    const newScreenOutput = [...state.screenOutput];
-    cyclesCoveredByOperation.forEach(cycleNumber => {
-        const isLit = cycleNumber === state.registers.x.value
-            || cycleNumber === state.registers.x.value + 1
-            || cycleNumber === state.registers.x.value - 1;
-
-        if (isLit) {
-            console.log(`${cycleNumber} is lit`);
-            newScreenOutput[cycleNumber] = "#";
-        }
-    });
-
-    switch (action.type) {
-        case "addx":
-            return {
-                ...state,
-                registers: {
-                    ...state.registers,
-                    x: {
-                        value: state.registers.x.value + action.payload,
-                    }
-                },
-                cycle: cycleAfterNextAction,
-                signalStrengthMeasures: signalStrengthMeasure === null
-                    ? state.signalStrengthMeasures
-                    : [...state.signalStrengthMeasures, signalStrengthMeasure],
-                screenOutput: newScreenOutput,
-            };
-        case "noop":
-            return {
-                ...state,
-                cycle: cycleAfterNextAction,
-                signalStrengthMeasures: signalStrengthMeasure === null
-                    ? state.signalStrengthMeasures
-                    : [...state.signalStrengthMeasures, signalStrengthMeasure],
-                screenOutput: newScreenOutput,
-            };
-        default:
-            return state;
-    }
-};
-
-const endState = commands.reduce((p, c) => reducer(p, c), initialState);
-
-console.log(endState);
-
-let lines = [];
-
-for (let i = 0; i < SCREEN_HEIGHT; i++) {
-    lines.push(endState.screenOutput.slice(i, i+SCREEN_WIDTH));
+let currentRow = 0;
+function addOutputToScreen() {
 }
 
-console.log(lines.map(x => x.join("")).join("\n"));
+let register = 1;
+let cycle;
+let commandPointer = 0;
+
+let currentOperation = null;
+let currentOperationTimeRemaining = 0;
+
+for (cycle = 0; cycle < CYCLES; cycle++) {
+    // start of cycle
+    if (currentOperation !== null && currentOperationTimeRemaining === 0) {
+        currentOperation();
+    }
+
+    const {c, n} = commands[commandPointer] || { c: "noop", n: null };
+    if (c === "addx" && currentOperationTimeRemaining === 0) {
+        console.log(`Start cycle ${cycle}: begin executing addx ${n}`);
+        currentOperation = () => {
+            register += n;
+            commandPointer++;
+            currentOperation = null;
+            currentOperationTimeRemaining = 0;
+        };
+        currentOperationTimeRemaining = 2;
+    } else if (currentOperationTimeRemaining === 0) {
+        console.log(`Start cycle ${cycle}: execute noop}`);
+        currentOperation = () => {
+            commandPointer++;
+            currentOperation = null;
+            currentOperationTimeRemaining = 0;
+        };
+        currentOperationTimeRemaining = 1;
+    }
+
+    // during cycle
+    const pixelXPosition = cycle % SCREEN_WIDTH;
+
+    console.log(`During cycle ${cycle}: CRT draws pixel at position ${pixelXPosition}`);
+    console.log(`Current CRT row: ${screenOutput[currentRow].join("")}`);
+
+    if (cycle % SCREEN_WIDTH === 0 && cycle > 0) {
+        currentRow++;
+    }
+
+    if (register -1 === pixelXPosition || register === pixelXPosition || register + 1 === pixelXPosition) {
+        screenOutput[currentRow][pixelXPosition] = "#";
+    }
+
+    // end of cycle
+
+    if (currentOperationTimeRemaining > 0) {
+        currentOperationTimeRemaining -= 1;
+    }
+    console.log("\n\n")
+}
+
+console.log(screenOutput.map(x => x.join("")).join("\n"));
