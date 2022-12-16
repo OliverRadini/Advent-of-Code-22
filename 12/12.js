@@ -155,7 +155,7 @@ const calculateWalkCost = (startX, startY, endX, endY) => {
 
 const tempPrintingSize = 10;
 
-for (let i = 0; i < 100000; i++) {
+for (let i = 0; i < 10000; i++) {
     for (let y = 0; y < allNodes.length; y++) {
         const thisLine = allNodes[y];
         for (let x = 0; x < thisLine.length; x++) {
@@ -176,3 +176,8 @@ console.log("=============================")
 
 // console.log(allNodes.map(line => line.map(x => x.cost).join(" ")).join("\n"))
 console.log(allNodes[startingCoord.y][startingCoord.x].cost);
+const result = allNodes
+    .flatMap(line => line.filter(x => x.v === 'a' && x.cost !== -1))
+    .sort((a, b) => a.cost < b.cost ? -1 : 1)[0].cost
+
+console.log(result);
