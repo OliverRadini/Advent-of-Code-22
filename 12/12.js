@@ -1,10 +1,12 @@
 const { readFileSync } = require("fs");
 
-const letterLookup = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8, i: 9, j: 10, k: 11, l: 12, m: 13, n: 14, o: 15, p: 16, q: 17, r: 18, s: 19, t: 20, u: 21, v: 22, w: 23, x: 24, y: 25, z: 26 };
+const letterLookup = { S: 1, E: 26, a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8, i: 9, j: 10, k: 11, l: 12, m: 13, n: 14, o: 15, p: 16, q: 17, r: 18, s: 19, t: 20, u: 21, v: 22, w: 23, x: 24, y: 25, z: 26 };
 const filename = process.argv[2] || "./data12";
 const input = readFileSync(filename, "utf8")
     .split("\n")
     .map(line => line.split(""));
+
+const HEIGHT = input.length;
 
 const findValue = (value) => {
     for (let y = 0; y < input.length; y++) {
@@ -39,112 +41,101 @@ const getCoordinatesSurrounding = ({ x: xFrom, y: yFrom }) => [
     { x: xFrom, y: yFrom - 1 },
     { x: xFrom - 1, y: yFrom },
     { x: xFrom + 1, y: yFrom },
-];
+]
+    .filter(c => {
+        try {
+            const isGreaterThanZero = c.x >= 0 && c.y >= 0;
 
+            if (!isGreaterThanZero) {
+                return false;
+            }
+            
+            const isWithinBounds = c.y < HEIGHT && c.x < input[c.y].length;
 
-// the data we are talking about is a tree
-// so a node has a value, and multiple children
-// so for this, a node has a value of its position, and children of (possible) surrounding nodes
-// and then a path is just a string of nodes
-// a string of nodes is just Node -> Child Node -> Child Node
-const coordNodes = {};
-const getCoordsNode = (c) => coordNodes[`${c.x}|${c.y}`];
-const addCoordNode = (node) => coordNodes[`${node.value.x}|${node.value.y}`] = node;
+            return isWithinBounds;
+        } catch (error) {
+            console.log(`Error finding coordinate (${c.x}, ${c.y})`);
+            return false;
+        }
+    });
 
-const walkIsViable = (from) => (to) => {
-    const fromValue = getValueAt(from);
-    const toValue = getValueAt(to);
-    if (fromValue === null || toValue === null) {
-        return false;
-    }
-    return letterLookup[toValue] - letterLookup[fromValue] <= 1
-        || fromValue === "S" || toValue === "E";
+const coordHeightCache = {};
+
+const getKeyForCoord = ({ x, y }) => `(${x}, ${y})`;
+
+const coordsAreEqual = a => b => a.x === b.x && a.y === b.y;
+
+const walkIsViable = a => b => {
+    return letterLookup[b] - letterLookup[a] <= 1;
 };
 
-console.log(getCoordinatesSurrounding({ x: 0, y: 7 }).filter(x => walkIsViable({ x: 0, y: 7})(x)));
+let allNodes = input
+    .map((line, y) => line.map((v, x) => ({ x, y, v, parents: [], children: [], cost: -1 })));
 
-const buildPaths = (from, finish, visited) => {
-    const existingNode = getCoordsNode(from);
-    if (existingNode !== undefined) {
-        return existingNode;
+const getAllNodeAtCoord = (coord) => allNodes[coord.y][coord.x];
+
+const getNodeschildren = node => {
+    return getCoordinatesSurrounding(node)
+        .map(getAllNodeAtCoord)
+        .filter(coord => coord && walkIsViable(node.v)(coord.v))
+}
+
+const knownWalkLengths = {};
+
+for (let y = 0; y < allNodes.length; y++) {
+    const thisLine = allNodes[y];
+    for (let x = 0; x < thisLine.length; x++) {
+        allNodes[y][x].children = getNodeschildren(allNodes[y][x]);
+        allNodes[y][x].children.forEach(child => {
+            child.parents.push(allNodes[y][x]);
+        });
     }
-    if (from.x === finish.x && from.y === finish.y) {
-        console.log("FOUND THE END!");
-        return {
-            value: from,
-            children: []
-        };
-    }
-    const isViable = walkIsViable(from);
-    const isNotVisited = (c) => !(visited.some(x => x.x === c.x && x.y === c.y));
-    const node = {
-        value: from,
-        children: getCoordinatesSurrounding(from)
-            .filter(isViable)
-            .filter(isNotVisited)
-            .map(coord => buildPaths(coord, finish, [...visited, from]))
-    };
-    addCoordNode(node);
-    return node;
-};
+}
 
-const startingNode = buildPaths(startingCoord, endingCoord, []);
-const nodesAreEqual = (a, b) => a.value.x === b.value.x &&
-    a.value.y === b.value.y;
+const calculateWalkCost = (startX, startY, endX, endY) => {
+    const allNode = allNodes[startY][startX];
 
-const minimumRouteCache = {
-
-};
-const calculateMinimumRoute = (from, target) => {
-    if (from === undefined || target === undefined) {
-        console.log("UH OH");
-    }
-    const thisCacheKey = `(${from.value.x}, ${from.value.y})`;
-    if (minimumRouteCache[thisCacheKey] !== undefined) {
-        return minimumRouteCache[thisCacheKey];
+    if (allNode.cost !== -1) {
+        return allNode.cost;
     }
 
-    if (nodesAreEqual(from, target)) {
-        minimumRouteCache[thisCacheKey] = 0;
+    if (startX === endX && startY === endY) {
         return 0;
     }
 
-    const childSizes = from.children.map(child => calculateMinimumRoute(child, target));
+    const children = allNode.children
+        .filter(x => Number.isFinite(x.cost))
+        .filter(x => x.cost !== -1)
+        .filter(x => x.cost !== -7);
 
-    if (childSizes.some(x => !Number.isFinite(x))) {
-        console.log("infinity?");
+    if (children.length === 0) {
+        return -7;
     }
 
-    const result = Math.min(...childSizes) + 1;
-    minimumRouteCache[thisCacheKey] = result;
-    console.log(`registering result for ${thisCacheKey}`);
-    return result;
-}
+    if (children.every(x => x.cost === -1)) {
+        return -2;
+    }
 
-const endNode = {
-    value: endingCoord,
-    children: []
+    return Math.min(...children.map(x => x.cost)) + 1;
 };
 
-const pathSizeGrid = input.map(line => line);
+const tempPrintingSize = 20;
 
-for (let y = 0; y < input.length; y++) {
-    const thisLine = input[y];
-    for (let x = 0; x < thisLine.length; x++) {
-        const fromNode = getCoordsNode({ x, y });
-        if (!fromNode) {
-            continue;
+for (let i = 0; i < 10000; i++) {
+    for (let y = 0; y < allNodes.length; y++) {
+        const thisLine = allNodes[y];
+        for (let x = 0; x < thisLine.length; x++) {
+            allNodes[y][x].cost = calculateWalkCost(x, y, endingCoord.x, endingCoord.y)
         }
-        const thisPathSize = calculateMinimumRoute(fromNode, endNode);
-        pathSizeGrid[y][x] = thisPathSize;
     }
+
 }
+    const surroundingEnd = allNodes.slice(endingCoord.y - tempPrintingSize, endingCoord.y + tempPrintingSize)
+        .map(line => line.slice(endingCoord.x - tempPrintingSize, endingCoord.x + tempPrintingSize).map(x => x.cost < 0 ? "-" : x.cost).join("|")).join("\n")
 
-const tempOutput = pathSizeGrid.map(line => line.join("")).join("\n");
-console.log(tempOutput);
+    console.log("=============================")
+    console.log(surroundingEnd);
+    console.log("=============================")
 
-
-console.log("Has all nodes");
-console.log("Calculating result");
-const result = calculateMinimumRoute(startingNode, endNode);
-console.log(result);
+// console.log(allNodes.map(line => line.map(x => x.cost).join(" ")).join("\n"))
+console.log(allNodes[startingCoord.y][startingCoord.x].cost);
