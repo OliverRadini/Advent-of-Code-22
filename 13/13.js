@@ -19,7 +19,10 @@ const groupsOfSize = (n, xs) => {
 
 const input = groupsOfSize(3, readFileSync(filePath, "utf8").split("\n"))
     .map(x => x.slice(0, 2))
-    .map(x => x.map(JSON.parse));
+    .map(x => x.map(JSON.parse))
+    .flatMap(x => x);
+
+console.log(input);
 
 const zip = (a, b) => {
     const maxLength = Math.max(a.length, b.length);
@@ -128,9 +131,18 @@ const compareLists = (l, r) => {
 };
 
 const result = input
-    .map(([a, b], i) => [JSON.stringify([a, b]), i, compareLists(a, b)])
-    .filter(([_, __, correctness]) => correctness === comparisonResult.correct)
-    .map(([_, i, __]) => i + 1)
-    .reduce((p, c) => p + c, 0);
+    .sort((a, b) => compareLists(a, b) === comparisonResult.correct ? -1 : 1);
 
-console.log(result);
+const findDividerWithNumber = n => result.findIndex(
+    x =>
+        Array.isArray(x)
+        && x.length === 1
+        && x[0].length === 1
+        && Array.isArray(x[0])
+        && x[0][0] === n
+);
+
+const divider2Index = findDividerWithNumber(2) + 1;
+const divider6Index = findDividerWithNumber(6) + 1;
+
+console.log(divider2Index * divider6Index);
