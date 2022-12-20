@@ -21,46 +21,6 @@ const sensorData = readFileSync(filePath, "utf8")
         distance: Math.abs(sX - bX) + Math.abs(sY - bY),
     }));
 
-const sensorRangeCrossesCoordRange = (xMin, yMin, xMax, yMax, { sX, sY, distance }) => {
-    // at least one of the corners of the range must cross into the batch,
-    // or the batch must cross into the corner of the range
-
-    const batchCorners = [
-        [xMin, yMin], [xMin, yMax], [xMax, yMin, xMax, yMax]
-    ];
-
-    const rangeCorners = [
-        [sX - distance, sY], [sX + distance, sY], [sX, sY - distance], [sX, sY + distance]
-    ];
-
-    const someRangeCornerIsInBatch = rangeCorners.some(([x, y]) => x > xMin && x < xMax && y > yMin && y < yMax);
-    if (someRangeCornerIsInBatch) {
-        return true;
-    }
-
-    return batchCorners.some(
-        ([x, y]) => ((Math.max(sX, x) - Math.min(sX, x)) + (Math.max(sY, y) - Math.min(sY, y))) <= distance
-    );
-};
-
-const batches = [];
-// const batchSize = 250000;
-const batchSize = scanRange / 4;
-
-for (let yStart = 0; yStart < scanRange; yStart += batchSize) {
-    console.log(`${yStart} / ${scanRange}`);
-    const yEnd = yStart + batchSize;
-    for (let xStart = 0; xStart < scanRange; xStart += batchSize) {
-        const xEnd = xStart + batchSize;
-        const theseSensors = sensorData.filter(s => sensorRangeCrossesCoordRange(
-            xStart, yStart, xEnd, yEnd, s
-        ));
-
-        batches.push({
-            xStart, xEnd, yStart, yEnd, sensors: theseSensors
-        });
-    }
-}
 
 function* getPerimeterCoords (pX, pY, d) {
     for (let x = -d; x <= d; x++) {
