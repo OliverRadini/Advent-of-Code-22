@@ -2,7 +2,6 @@ const { readFileSync } = require("fs");
 
 const filePath = process.argv[2] || "./data16_2";
 
-// Valve JZ has flow rate=0; tunnels lead to valves IR, LY
 const valves = readFileSync(filePath, "utf8")
     .split("\n")
     .map(line => line
@@ -12,78 +11,82 @@ const valves = readFileSync(filePath, "utf8")
     )
     .map(line => {
         const [id, flowRate, tunnelsRaw] = line.split("|");
-        return { id, flowRate: Number(flowRate), tunnels: tunnelsRaw.split(", ") };
-    })
+        return {
+            id,
+            flowRate: Number(flowRate),
+            tunnels: tunnelsRaw.split(", "),
+            isOpen: false
+        };
+    });
 
 const valvesLookup = {};
 for (let i = 0; i < valves.length; i++) {
     const thisValve = valves[i];
     valvesLookup[thisValve.id] = thisValve;
 
-    thisValve.links = thisValve.tunnels.map(t => valves.find(v => v.id === t));
+    thisValve.links = thisValve
+        .tunnels
+        .map(t => {
+            return valves.find(v => v.id === t.replace("\r", ""));
+        });
 }
 
 const getValveWithId = id => valvesLookup[id];
 
 const initialValve = getValveWithId("AA");
 
-/**
- * Could we try:
- *     - for each node, get the distance to each other node
- *           - and note the shortest path
- *     - walk the tree, each time we move a node check that we are always moving
- *       in the optimum direction
- *     - so when we're at a node, look at each node and determine, we have to walk
- *       how far, how much pressure will be released total by the time we reach that
- *       valve
- * 
- * This is a difficult problem because:
- *     - The best route between two nodes may change once a valve is changed
- *     - So you don't seem to have much choice but to recompute this every time
- *     - Though we _can_ say that changing a valve can only affect routes where that
- *       valve appears
- *     - In which case, maybe keep a cache of all paths which contain a given valve
- *       and then adjust those when a valve is changed
- * 
- * Maybe at first we need to cache all possible routes, rather than best/shortest?
- *     - Because we need to know which routes are possible at a given time
- *       because it's possible that the all change completely
- * 
- * Is it possible to describe this problem as an evaluation as all possible paths
- * from a node before it repeats itself?
- *     - Maybe... why is the repeating significant?
- *     - You'd think it might be... but then that makes more sense on a graph
- *       where the weights aren't changing over time
- *     - A mathematical formulation of such a graph seems quite difficult... as you
- *       would need to keep track of so many variables
- * 
- * Is a brute force solution in any way realistic? You'd hvae to determine,
- * on every move, the new optimums for the entire graph. To determine the optimum
- * seems almost impossible; how do you know whether you would, once turning on the
- * first valve, be better off returning to the initial node or not? A -> B -> A -> D
- * may be more valuable, for instance, than A -> B -> C -> F. Determining which is most
- * valuable is essentially going to mean calculating every possible route.
- * 
- * Could we try and represent all of the possible routes as strings? See how many
- * there are
- */
+const walkCache = {};
+
+const addCache = (idA, idB, walk) => {
+    if (walkCache[idA] === undefined) {
+        walkCache[idA] = {};
+    }
+
+    if (walkCache[idA][idB] === undefined) {
+        walkCache[idA][idB] = {};
+    }
+
+    walkCache[idA][idB] = walk;
+};
+
 const getShortestPathBetweenNodes = (idA, idB, currentPath=[]) => {
+    // if (walkCache[idA] && walkCache[idA][idB] !== undefined) {
+    //     console.log(`
+    //         ${idA} -> ${idB} = ${walkCache[idA][idB]} (cached)
+    //         With current path: ${currentPath}
+    //     `);
+    //     return walkCache[idA][idB];
+    // }
+
     if (currentPath.some(id => id === idA)) {
         return null;
     }
 
     const nodeA = getValveWithId(idA);
 
+    if (nodeA === undefined) {
+        console.log("THIS IS AN ERROR");
+    }
+
     if (nodeA.links.some(l => l.id === idB)) {
-        return [...currentPath, idA, idB];
+        const result = [...currentPath, idA, idB];
+        addCache(idA, idB, result);
+        return result;
     }
 
     const pathsFromLinks = nodeA.links
-        .map(link => getShortestPathBetweenNodes(link.id, idB, [...currentPath, idA]))
+        .map(link => {
+            const shortestPath = getShortestPathBetweenNodes(
+                link.id,
+                idB,
+                [...currentPath, idA]
+            );
+            return shortestPath;
+        })
         .filter(x => x !== null);
 
-
     if (pathsFromLinks.length === 0) {
+        addCache(idA, idB, null);
         return null;
     }
 
@@ -92,111 +95,96 @@ const getShortestPathBetweenNodes = (idA, idB, currentPath=[]) => {
              ? -1 : 1
     )[0];
 
+    addCache(idA, idB, shortestPath);
+
+
+    // console.log(`
+    //     ${idA} -> ${idB} = ${shortestPath}
+    //     With current path: ${currentPath}
+    // `);
+
     return shortestPath;
 };
 
-// note: currently working under circumstance that you always turn the valve
-//       on and so every walk has the same time (2 minutes)
-const caches = {};
+// const test = getShortestPathBetweenNodes("DD", "JJ");
+// console.log(test);
 
-const addCache = (id, timeRemaining, result) => {
-    if (caches[id] === undefined) {
-        caches[id] = {};
+function getNodeValuesWithTimeRemaining(from, timeRemaining) {
+    const nodeValues = [];
+
+    if (timeRemaining === 27) {
+        console.log("TEST");
     }
 
-    caches[id][timeRemaining] = result;
-}
-const containsLessThanNDuplicates = n => nodes => {
-    const nodeTypeCounts = {};
-    for (let i = 0; i < nodes.length; i++) {
-        const thisNode = nodes[i];
+    for (let i = 0; i < valves.length; i++) {
+        const shortestPath = getShortestPathBetweenNodes(
+            from,
+            valves[i].id
+        );
 
-        if (nodeTypeCounts[thisNode] === undefined) {
-            nodeTypeCounts[thisNode] = 0;
+        if (shortestPath === null) {
+            continue;
         }
 
-        nodeTypeCounts[thisNode] += 1;
+        const distanceToThisNode = shortestPath.length;
+
+        const thisNodeValue = valves[i].isOpen
+            ? 0
+            : (valves[i].flowRate * (timeRemaining - 1 - distanceToThisNode)) / (distanceToThisNode);
+
+        nodeValues.push([valves[i].id, thisNodeValue]);
     }
 
-    return Object.values(nodeTypeCounts).every(x => x < n);
-};
-
-const walkCost = 2;
-// this is almost certainly not going to work - it would take far too long
-// as there are far too many possible walks
-const getPossibleWalksFromNodeWithTimeRemaining = (id, timeRemaining) => {
-    if (id === "AA" && timeRemaining === 30) {
-        console.log("yes");
-    }
-    if (caches[id] !== undefined && caches[id][timeRemaining] !== undefined) {
-        return caches[id][timeRemaining];
-    }
-
-    // note: this maybe shouldn't happen, as it won't
-    //       call this (hopefully) with this little time remaining
-    if (timeRemaining <= 1) {
-        return [];
-    }
-
-    const node = getValveWithId(id);
-
-    if (timeRemaining < (2 * walkCost)) {
-        const result = node.tunnels.map(t => [id, t]);
-        addCache(id, timeRemaining, result);
-        return result;
-    }
-
-    const walks = node.tunnels.flatMap(t => getPossibleWalksFromNodeWithTimeRemaining(
-        t, timeRemaining - walkCost
-    ))
-        .map(walk => [id, ...walk])
-        .filter(containsLessThanNDuplicates(10));
-
-
-    addCache(id, timeRemaining, walks);
-    caches[id][timeRemaining] = walks;
-    return walks;
-};
-
-const result = getPossibleWalksFromNodeWithTimeRemaining("AA", 30, [])
-    // .map(x => x.join("|"))
-    // .reduce(
-    //     (nonDuplicateWalks, currentWalk) => {
-    //         if (nonDuplicateWalks.has(currentWalk)) {
-    //             return nonDuplicateWalks;
-    //         }
-
-    //         nonDuplicateWalks.add(currentWalk);
-    //         return nonDuplicateWalks;
-    //     },
-    //     new Set()
-    // );
-
-console.log(result.length)
-
-const myNewValves = valves.map(v => ({...v, isOpen: false})).reduce(
-    (p, c) => ({
-        ...p,
-        [c.id]: c
-    }), {}
-);
-
-const calculateCostOfWalk = walk => {
-    let theseValves = {...myNewValves};
-
-    let pressureReleased = 0;
-    for (let i = 0; i < walk.length; i++) {
-        myNewValves[walk[i]].isOpen = true;
-        pressureReleased = Object.values(theseValves)
-            .reduce(
-                (p, c) => c.isOpen ? p + c.flowRate : 0,
-                pressureReleased
-            )
-    }
-
-    theseValves = null;
-    // console.log(`${walk.join(",")}: ${pressureReleased}`);
-    return [walk, pressureReleased];
+    return nodeValues.sort((a, b) => a[1] < b[1] ? 1 : -1);
 }
 
-console.log(result.map(calculateCostOfWalk).sort((a, b) => a[1] < b[1] ? 1 : -1));
+let pressureReleased = 0;
+let currentValve = initialValve;
+let currentWalk = [];
+const visitedNodes = [];
+
+for (let i = 0; i < 30; i++) {
+    console.log(` == Minute ${i + 1}`);
+    console.log(`Valves ${valves.filter(v => v.isOpen).map(v => v.id).join(", ")} are open releasing ${valves.reduce((p, c) => c.isOpen ? p + c.flowRate : p, 0)} pressure`);
+    for (let j = 0; j < valves.length; j++) {
+        if (valves[j].isOpen) {
+            pressureReleased += valves[j].flowRate;
+        }
+    }
+    visitedNodes.push(currentValve.id);
+    let hasOpened = false;
+    
+    if (currentWalk.length === 0 && !currentValve.isOpen && currentValve.flowRate !== 0) {
+        currentValve.isOpen = true;
+        visitedNodes.push("OPEN");
+        console.log(`You open valve ${currentValve.id}`)
+        hasOpened = true;
+    }
+
+    if (currentWalk.length === 0) {
+        const nodeValues = getNodeValuesWithTimeRemaining(currentValve.id, 30 - i);
+
+        const mostValuableNode = nodeValues[0];
+
+        if (mostValuableNode === null || mostValuableNode === undefined) {
+            console.log(currentWalk);
+        }
+
+        try {
+            const shortestPath = getShortestPathBetweenNodes(currentValve.id, mostValuableNode[0]).slice(1);
+            currentWalk = shortestPath;
+        } catch (err) {
+            console.log(err);
+        }
+    }
+
+    if (!hasOpened) {
+        console.log(`You move to valve ${currentWalk[0]}`);
+        currentValve = getValveWithId(currentWalk[0]);
+    }
+    currentWalk = currentWalk.slice(1);
+
+}
+
+console.log(visitedNodes);
+console.log(pressureReleased)
