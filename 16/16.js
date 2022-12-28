@@ -1,7 +1,11 @@
 const { writeFileSync, readFileSync } = require("fs");
 
-const filePath = process.argv[2] || "./data16";
+const filePath = process.argv[2] || "./data16_2";
 
+/**
+ * Valves is the data for all valves, and has raw data on
+ * tunnels, flow rate, and id
+ */
 const valves = readFileSync(filePath, "utf8")
     .split("\n")
     .map(line => line
@@ -18,6 +22,7 @@ const valves = readFileSync(filePath, "utf8")
         };
     });
 
+// links just maps which nodes are connected to which other nodes
 const links = valves.reduce((p, c) => ({
     ...p,
     [c.id]: valves.reduce((p1, c1) => ({
@@ -26,30 +31,12 @@ const links = valves.reduce((p, c) => ({
     }), {})
 }), {});
 
+// Rates is just the flow rate for each node, valve id: flow rate
 const rates = valves.reduce((p, c) => ({
     ...p,
     [c.id]: c.flowRate
 }), {});
 
-const valveOpenState = valves.reduce((P, c) => ({ ...P, [c.id]: false }), {})
-
-let paths = {}
-try {
-    paths = JSON.parse(readFileSync("./paths_cache", "utf8"));
-} catch {
-    paths = valves.reduce((p1, c1, i) => {
-        console.log(`${i}/${valves.length}`);
-        return {
-            ...p1,
-            [c1.id]: valves.filter(v => v.flowRate !== 0).reduce((p2, c2) => ({
-                ...p2,
-                [c2.id]: getShortestPathBetween(c1.id, c2.id, {})
-            }), {})
-        };
-    }, {})
-}
-
-writeFileSync("./paths_cache", JSON.stringify(paths));
 
 function getShortestPathBetween(from, to, alreadyVisited) {
     if (paths && paths[from] && paths[from][to] !== undefined) {
@@ -83,126 +70,65 @@ function getShortestPathBetween(from, to, alreadyVisited) {
     return [from, ...shortestRoute];
 }
 
-const closedValves = () => Object.keys(valveOpenState).filter(k => !valveOpenState[k])
-
-function getValveValue(from , to, timeRemaining, theseRates) {
-    const pathToTake = from === to ? [] : paths[from][to];
-
-    if (pathToTake === undefined) {
-        return 0;
-    }
-
-    const pathCost = pathToTake.length;
-
-    const amountOfTimeValveWillBeOpen = timeRemaining - pathCost - 1;
-    return (amountOfTimeValveWillBeOpen * theseRates[to]);
+/**
+ * 
+ * Paths has { valve id: { valve id: distance } }
+ * 
+ * It will only include nodes that are AA or flow rate over 0.
+ * It won't have distances to the same node.
+ * 
+ */
+let paths = {}
+try {
+    paths = JSON.parse(readFileSync("./paths_cache", "utf8"));
+} catch {
+    paths = valves.filter(x => x.flowRate > 0 || x.id === "AA").reduce((p1, c1, i) => {
+        console.log(`${i}/${valves.length}`);
+        return {
+            ...p1,
+            [c1.id]: valves.filter(v => v.id !== c1.id).filter(v => (v.flowRate > 0 || v.id === "AA")).reduce((p2, c2) => ({
+                ...p2,
+                [c2.id]: getShortestPathBetween(c1.id, c2.id, {}).length
+            }), {})
+        };
+    }, {})
 }
 
-function allCombinationsOf(xs) {
-    if (xs.length === 2) {
-        return [[xs[0], xs[1]], [xs[1], xs[0]]];
-    }
-    return xs.flatMap(x => allCombinationsOf(xs.filter(y => y !== x)).map(y => [x, ...y]));
-}
+writeFileSync("./paths_cache", JSON.stringify(paths));
 
 
-let timeRemaining = 30;
-const currentNode = "AA";
-
-const evaluateWalkValue = (start, walk, timeRemaining, rates, openStates) => {
-    let currentTimeRemaining = timeRemaining;
-    const theseOpenStates = {...openStates};
-    const thisWalk = [start, ...walk];
-
-    let totalPressureRelease = 0;
-
-    for (let i = 0; i < thisWalk.length - 1; i++) {
-        const from = thisWalk[i];
-        const to = thisWalk[i + 1]
-
-        currentTimeRemaining -= (paths[from][to].length  - 1);
-
-        theseOpenStates[to] = true;
-        currentTimeRemaining -= 1;
-
-        if (currentTimeRemaining < 0) {
-            return totalPressureRelease;
-        }
-
-        totalPressureRelease += currentTimeRemaining * rates[to];
-
-        if (totalPressureRelease < 0) {
-            throw new Error("Walk value cannot be below 0");
-        }
+/**
+ * 
+ * @param {string} from node id to start from
+ * @param {number} timeRemaining  how much time is remaining
+ * @returns a list of nodes representing the possible paths
+ */
+function allPathsFromXWithTimeRemaining (from, timeRemaining) {
+    if (timeRemaining <= 1) {
+        console.log(`At ${from} with ${timeRemaining} minute(s) remaining. No reachable nodes`);
+        return [[from]];
     }
 
+    const reachableNodes = Object.keys(paths[from])
+        .filter(to => paths[from][to] < timeRemaining - 1);
 
-    return totalPressureRelease;
+    if (reachableNodes.length === 0) {
+        return [[from]];
+    }
+
+    const timeRemainingAfterOpeningValve = timeRemaining - 1;
+
+    return reachableNodes
+        .flatMap(to => {
+            const allPathsFromThisNode = allPathsFromXWithTimeRemaining(
+                to,
+                timeRemainingAfterOpeningValve - (paths[from][to])
+            );
+
+            return allPathsFromThisNode
+                .map(path => [from, ...path]);
+        });
 };
 
-function arrayMove(array, fromIndex, toIndex) {
-    const clone = [...array];
-    const element = clone[fromIndex];
-    clone.splice(fromIndex, 1);
-    clone.splice(toIndex, 0, element);
-    return clone;
-}
-
-let totalPressureRelease = 0;
-let visitedNodes = ["AA"]
-
-let bestKnownWalk = [[], 0];
-while(true) {
-    console.log(bestKnownWalk);
-    if (timeRemaining < 0) {
-        break;
-    }
-
-    console.log("Getting combinations...");
-    const bestNodes = closedValves()
-        .filter(v => rates[v] > 0)
-        .map(valve => [valve, getValveValue(currentNode, valve, timeRemaining, rates)])
-        .sort((a, b) => a[1] < b[1] ? 1 : -1)
-        .slice(0, 10)
-        .map(x => x[0]);
-
-    const combinations = allCombinationsOf(bestNodes)
-        .map(xs => xs.slice(0, 6));
-
-    console.log("Evaluating combinations...");
-    let bestWalk = [[], 0]
-    for (let i = 0; i < combinations.length; i++) {
-        const result = evaluateWalkValue(currentNode, combinations[i], timeRemaining, rates, valveOpenState);
-        if (result > bestWalk[1]) {
-            bestWalk = [combinations[i], result];
-        }
-    }
-
-    if (bestWalk[1] > bestKnownWalk[1]) {
-        bestKnownWalk = bestWalk;
-    }
-
-    if (bestWalk === undefined || bestWalk[0] === undefined) {
-        break;
-    }
-
-    // const sortedWalks = possibleWalks.sort((a, b) => a[1] > b[1] ? -1 : 1);
-    // sortedWalks.forEach(walk => {
-    //     console.log(`
-    //                    Walk: ${walk[0].join(", ")}
-    //         Estimated Value: ${walk[1]}
-    //     `);
-    // })
-    // const bestWalk = sortedWalks[0];
-    const nextNode = bestWalk[0][0];
-    console.log(`Next node is ${nextNode}`);
-    visitedNodes.push(nextNode);
-    timeRemaining -= paths[currentNode][nextNode].length;
-    valveOpenState[nextNode] = true;
-    timeRemaining -= 1;
-    totalPressureRelease += rates[nextNode] * timeRemaining;
-}
-
-console.log(visitedNodes);
-console.log(totalPressureRelease);
-console.log(bestKnownWalk);
+const test = allPathsFromXWithTimeRemaining("AA", 10);
+console.log(test);
