@@ -1,6 +1,6 @@
 const { writeFileSync, readFileSync } = require("fs");
 
-const filePath = process.argv[2] || "./data16_2";
+const filePath = process.argv[2] || "./test1";
 
 /**
  * Valves is the data for all valves, and has raw data on
@@ -21,6 +21,7 @@ const valves = readFileSync(filePath, "utf8")
             tunnels: tunnelsRaw.split(", ").map(x => x.replace("\r", ""))
         };
     });
+
 
 // links just maps which nodes are connected to which other nodes
 const links = valves.reduce((p, c) => ({
@@ -66,7 +67,7 @@ function getShortestPathBetween(from, to, alreadyVisited) {
     
     const shortestRoute = nextRoutes
         .sort((a, b) => a.length < b.length ? -1 : 1)[0];
-
+    
     return [from, ...shortestRoute];
 }
 
@@ -88,7 +89,7 @@ try {
             ...p1,
             [c1.id]: valves.filter(v => v.id !== c1.id).filter(v => (v.flowRate > 0 || v.id === "AA")).reduce((p2, c2) => ({
                 ...p2,
-                [c2.id]: getShortestPathBetween(c1.id, c2.id, {}).length
+                [c2.id]: getShortestPathBetween(c1.id, c2.id, {}).length - 1
             }), {})
         };
     }, {})
@@ -97,38 +98,80 @@ try {
 writeFileSync("./paths_cache", JSON.stringify(paths));
 
 
+const cache = {};
+
 /**
  * 
  * @param {string} from node id to start from
  * @param {number} timeRemaining  how much time is remaining
+ * @param {object} openNodes which nodes are open, key is valve id, value is whether it's open
  * @returns a list of nodes representing the possible paths
  */
-function allPathsFromXWithTimeRemaining (from, timeRemaining) {
+function bestWalkFromXWithTimeRemaining (from, timeRemaining, openNodes) {
+    const key = `${from}||${timeRemaining}||${JSON.stringify(openNodes)}`;
+    
+    // do we already know what this is? If so, use it
+    if (cache[key] !== undefined) {
+        return cache[key];
+    }
+
+    // with only one minute remaining, it's not possible to affect the
+    // amount of pressure released
     if (timeRemaining <= 1) {
-        console.log(`At ${from} with ${timeRemaining} minute(s) remaining. No reachable nodes`);
-        return [[from]];
+        cache[key] = 0;
+        return 0;
     }
 
-    const reachableNodes = Object.keys(paths[from])
-        .filter(to => paths[from][to] < timeRemaining - 1);
+    const shouldOpenValve = rates[from] > 0 && !openNodes[from];
 
-    if (reachableNodes.length === 0) {
-        return [[from]];
+    const timeRemainingAfterOpeningValve = shouldOpenValve
+        ? timeRemaining - 1
+        : timeRemaining;
+
+    const reachableClosedNodes = Object.keys(paths[from])
+        .filter(to => !openNodes[to] && paths[from][to] <= timeRemainingAfterOpeningValve);
+
+    if (reachableClosedNodes.length === 0) {
+        cache[key] = 0;
+        return 0;
     }
 
-    const timeRemainingAfterOpeningValve = timeRemaining - 1;
+    const pressureReleasedFromOpeningThisValve = timeRemainingAfterOpeningValve * rates[from];
 
-    return reachableNodes
-        .flatMap(to => {
-            const allPathsFromThisNode = allPathsFromXWithTimeRemaining(
+    const allPathValues = reachableClosedNodes
+        .map(to => bestWalkFromXWithTimeRemaining(
                 to,
-                timeRemainingAfterOpeningValve - (paths[from][to])
-            );
+                timeRemainingAfterOpeningValve - (paths[from][to]),
+                { ...openNodes, [from]: shouldOpenValve || openNodes[from] }
+            
+        ));
 
-            return allPathsFromThisNode
-                .map(path => [from, ...path]);
-        });
+    const result = pressureReleasedFromOpeningThisValve + allPathValues
+        .reduce(
+            (p, c) => c > p ? c : p,
+            0,
+        );
+
+    cache[key] = result;
+    
+    return result;
 };
 
-const test = allPathsFromXWithTimeRemaining("AA", 10);
-console.log(test);
+const allValvesClosed = valves.reduce((p, c) => ({ ...p, [c.id]: false }), {});
+const result = bestWalkFromXWithTimeRemaining("AA", 30, allValvesClosed);
+console.log(result);
+
+
+/**
+ * 
+ * What is going wrong?
+ *   - The path is wrong?
+ *   - The number is 21 short
+ *     - This could be any number of things
+ * 
+ * 
+ * What is not going wrong?
+ *   - The shortest paths are all correct
+ *   - The logic is at least close, as the example is correct
+ *   - 
+ */
