@@ -136,7 +136,9 @@ function bestWalkFromXWithTimeRemaining (from, timeRemaining, openNodes) {
         return 0;
     }
 
-    const pressureReleasedFromOpeningThisValve = timeRemainingAfterOpeningValve * rates[from];
+    const pressureReleasedFromOpeningThisValve = shouldOpenValve
+        ? timeRemainingAfterOpeningValve * rates[from]
+        : 0;
 
     const allPathValues = reachableClosedNodes
         .map(to => bestWalkFromXWithTimeRemaining(
