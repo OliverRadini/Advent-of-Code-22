@@ -87,7 +87,7 @@ try {
         console.log(`${i}/${valves.length}`);
         return {
             ...p1,
-            [c1.id]: valves.filter(v => v.id !== c1.id).filter(v => (v.flowRate > 0 || v.id === "AA")).reduce((p2, c2) => ({
+            [c1.id]: valves.filter(v => v.id !== c1.id).filter(v => v.flowRate > 0).reduce((p2, c2) => ({
                 ...p2,
                 [c2.id]: getShortestPathBetween(c1.id, c2.id, {}).length - 1
             }), {})
