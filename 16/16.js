@@ -112,14 +112,6 @@ const cache = {};
 function bestWalkFromXWithTimeRemaining (from, timeRemaining, openNodes) {
     const key = `${from}||${timeRemaining}||${JSON.stringify(openNodes)}`;
 
-    if (from === "JJ" && timeRemaining === 5) {
-        console.log("HERE");
-    }
-
-    if (key === "EE||10||{\"AA\":false,\"BB\":true,\"CC\":true,\"DD\":true,\"EE\":false,\"FF\":false,\"GG\":false,\"HH\":true,\"II\":false,\"JJ\":false}") {
-        console.log("here");
-    }
-    
     // do we already know what this is? If so, use it
     if (cache[key] !== undefined) {
         return cache[key];
