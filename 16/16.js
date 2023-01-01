@@ -99,17 +99,78 @@ try {
 
 writeFileSync(`./${cacheName}_cache`, JSON.stringify(paths));
 
+const cache_2 = {};
+
+function getAllWalksFromNode (from, timeRemaining, openNodes) {
+    if (timeRemaining <= 1) {
+        // no meaningful walks possible
+        cache
+        return [[[from], 0]];
+    }
+
+    if (rates[from] === undefined) {
+        return [[[from], 0]];
+    }
+
+    const shouldOpenValve = rates[from] > 0 && !openNodes[from];
+
+    const timeRemainingAfterOpeningValve = shouldOpenValve
+        ? timeRemaining - 1
+        : timeRemaining;
+
+    const pressureReleasedFromOpeningThisValve = shouldOpenValve
+        ? timeRemainingAfterOpeningValve * rates[from]
+        : 0;
+
+    const reachableClosedNodes = Object.keys(paths[from])
+        .filter(to => !openNodes[to] && paths[from][to] <= timeRemainingAfterOpeningValve);
+
+    if (reachableClosedNodes.length === 0) {
+        return [[[from], pressureReleasedFromOpeningThisValve]];
+    }
+
+    const allWalks = [...reachableClosedNodes, "END"]
+        .map(closedNode => getAllWalksFromNode(
+            closedNode,
+            timeRemainingAfterOpeningValve - (paths[from][closedNode]),
+            { ...openNodes, [from]: shouldOpenValve || openNodes[from] }
+        ))
+        .flatMap(allWalksForANode => {
+            return allWalksForANode
+                .map(([ walk, value ]) => [
+                    [from, ...walk],
+                    value + pressureReleasedFromOpeningThisValve
+                ]);
+        });
+
+    return allWalks;
+}
+
+
+const valveBitLookup = valves
+    .filter(v => v.flowRate > 0)
+    .reduce(
+        (p, c, i) => ({
+            ...p,
+            [c.id]: Math.pow(2, i)
+        }),
+        {},
+    );
+
+const walkToBitwise = walk => walk
+    .reduce((p, c) => {
+        return p + (valveBitLookup[c] || 0);
+    }, 0);
 
 const cache = {};
 
 /**
  * 
- * @param {string} from node id to start from
- * @param {number} timeRemaining  how much time is remaining
+ * @param {object} walkers data on the state of walkers, their time remaining and position
  * @param {object} openNodes which nodes are open, key is valve id, value is whether it's open
  * @returns a list of nodes representing the possible paths
  */
-function bestWalkFromXWithTimeRemaining (from, timeRemaining, openNodes) {
+function bestWalkFromXWithTimeRemaining (walkers, openNodes) {
     const key = `${from}||${timeRemaining}||${JSON.stringify(openNodes)}`;
 
     // do we already know what this is? If so, use it
@@ -166,7 +227,57 @@ function bestWalkFromXWithTimeRemaining (from, timeRemaining, openNodes) {
 };
 
 const allValvesClosed = valves.reduce((p, c) => ({ ...p, [c.id]: false }), {});
-const result = bestWalkFromXWithTimeRemaining("AA", 30, allValvesClosed);
-console.log(result);
+// const result = bestWalkFromXWithTimeRemaining("AA", 30, allValvesClosed);
+const result = getAllWalksFromNode("AA", 26, allValvesClosed)
+    .map(([walk, value]) => ({
+        walk,
+        value,
+        walkLookup: walkToBitwise(walk)
+    }))
+    .sort((a, b) => a.value > b.value ? -1 : 1);
+
+const joinCache = {};
+
+const jointWalks = result
+    .map(({ walk, value, walkLookup }, i) => {
+        const bestUnion = joinCache[walkLookup] === undefined
+            ? result.find(x => {
+                return (x.walkLookup & walkLookup) === 0;
+            })
+            : joinCache[walkLookup];
+
+        joinCache[walkLookup] = bestUnion;
+        if (bestUnion !== undefined) {
+            console.log(`best union of ${walk.join(", ")} is ${bestUnion.walk.join(", ")}`)
+        }
+        if (i % 1000 === 0) {
+            console.log(`Joining ${i} out of ${result.length}`);
+            if (bestUnion) {
+                console.log(`best union of ${walk.join(", ")} is ${bestUnion.walk.join(", ")}`)
+            }
+        }
+        return {
+            walk,
+            value,
+            walkLookup,
+            bestUnion,
+        };
+    })
+    .map(x => ({
+        ...x,
+        total: x.value + (x.bestUnion ? x.bestUnion.value : 0)
+    }));
+
+const bestTotal = jointWalks.sort((a, b) => a.total > b.total ? -1 : 1)[0];
+console.log(jointWalks);
+console.log(bestTotal);
+
+const testThing = jointWalks
+    .find(x => x.walk.join(",")
+    .startsWith("AA,JJ,BB,CC,END"));
+
+const testThing2 = jointWalks
+    .find(x => x.walk.join(",")
+    .startsWith("AA,DD,HH,EE,END"));
 
 writeFileSync(`${cacheName}_results_cache`, JSON.stringify(cache, null, 4));
